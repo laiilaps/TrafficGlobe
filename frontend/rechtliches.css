@@ -1,0 +1,28 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #000a06; color: #cfe9d8; line-height: 1.65;
+       font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+h1 { margin: 8px 0 0; font-size: 34px; letter-spacing: 0.02em; color: #39ff88; }
+h2 { margin: 48px 0 12px; padding-top: 20px; border-top: 1px solid rgba(57, 255, 136, 0.25);
+     font-size: 22px; color: #39ff88; }
+h3 { margin: 28px 0 6px; font-size: 16px; color: #e6fff0; }
+p, li { color: #cfe9d8; }
+li { margin: 6px 0; }
+a { color: #6fffb0; text-underline-offset: 3px; }
+a:hover { color: #ffffff; }
+strong { color: #ffffff; font-weight: 600; }
+.stand { margin: 2px 0 20px; font-size: 13px; opacity: 0.6; }
+.zurueck { margin: 0; font-size: 14px; }
+.zurueck.unten { margin-top: 56px; }
+.inhalt { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 8px; font-size: 14px; }
+.karte { display: inline-block; margin: 4px 0 12px; padding: 12px 16px; background: rgba(57, 255, 136, 0.07);
+         border: 1px solid rgba(57, 255, 136, 0.25); border-radius: 8px; }
+.kurz { margin: 8px 0 8px; padding: 4px 18px 8px; background: rgba(57, 255, 136, 0.07);
+        border: 1px solid rgba(57, 255, 136, 0.25); border-radius: 8px; }
+.kurz h3 { margin-top: 14px; color: #39ff88; }
+@media (max-width: 560px) {
+    main { padding: 20px 16px 48px; }
+    h1 { font-size: 28px; }
+    h2 { margin-top: 36px; }
+}

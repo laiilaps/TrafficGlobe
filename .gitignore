@@ -1,0 +1,12 @@
+node_modules/
+frontend/vendor/globe.gl.min.js
+frontend/data/*.json
+geo/*.mmdb
+geo/VERSION
+geo/.update-status
+out/
+web/
+.env
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,65 @@
+# Beispiel: Collector + Geo-Updater. Anpassen, dann:  docker compose -f docker-compose.example.yml up -d --build
+# Die Ordner ./geo und ./out müssen für UID 1000 beschreibbar sein:  sudo chown 1000:1000 geo out
+services:
+  collector:
+    build: ./collector
+    container_name: globe-collector
+    user: "1000:1000"
+    group_add:
+      - "4"                      # Gruppe adm (GID prüfen: getent group adm), darf /var/log/{auth,ufw,fail2ban}.log lesen
+    network_mode: none           # der Collector braucht kein Netz
+    read_only: true
+    tmpfs:
+      - /tmp
+    env_file:
+      - .env
+    environment:
+      - TZ=Europe/Berlin         # Zeitzone der Logs (fail2ban schreibt Ortszeit ohne Zone)
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/log:/host-log:ro
+      - globe-nginx-logs:/nginx-log:ro   # dasselbe Volume bindest du in deinen nginx ein (access_log-Datei)
+      - ./geo:/geo:ro
+      - ./out:/out
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time()-os.path.getmtime('/out/status.json') < 90 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  geo-update:
+    build: ./updater
+    container_name: globe-geo-update
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./geo:/geo               # einziges beschreibbares Verzeichnis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time()-os.path.getmtime('/geo/.update-status') < 30000 else 1)"]
+      interval: 5m
+      timeout: 10s
+      retries: 2
+      start_period: 2m
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 32
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  globe-nginx-logs:
+    name: globe-nginx-logs

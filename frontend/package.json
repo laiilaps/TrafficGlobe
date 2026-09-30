@@ -1,0 +1,13 @@
+{
+  "name": "trafficglobe-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live-Globus: Frontend (globe.gl wird nur als Datei ausgeliefert, kein Build nötig)",
+  "license": "MIT",
+  "scripts": {
+    "vendor": "mkdir -p vendor && cp node_modules/globe.gl/dist/globe.gl.min.js vendor/globe.gl.min.js"
+  },
+  "dependencies": {
+    "globe.gl": "2.46.2"
+  }
+}

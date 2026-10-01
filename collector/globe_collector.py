@@ -268,8 +268,10 @@ def build_public(events, now, delay=DELAY_PRIVATE, k_min=K_MIN):
     }
 
 
-def build_live(events, now, since, delay=DELAY_PRIVATE, k_min=K_MIN):
-    """Kompakte Live-Datei (Sekundenzeit): [t, Art-Nummer, Breite, Länge]. Gleiche Regeln wie build_public."""
+def build_live(events, now, since, delay=DELAY_PRIVATE, k_min=K_MIN, max_events=None, alle=False):
+    """Kompakte Live-Datei (Sekundenzeit): [t, Art-Nummer, Breite, Länge]. Gleiche Regeln wie build_public.
+
+    max_events begrenzt die Größe (Testmodus "jede Anfrage"), alle=True kennzeichnet diesen Modus in der Datei."""
     visitors = Counter(_coarse(e) for e in events if e["k"] == "http_ok" and e["t"] >= now - WINDOW)
     out = []
     for e in events:
@@ -281,7 +283,10 @@ def build_live(events, now, since, delay=DELAY_PRIVATE, k_min=K_MIN):
         out.append([e["t"], KINDS.index(e["k"]), la, lo])
     # Keine Artennamen und kein Ziel in der öffentlichen Datei: Das Frontend kennt die Reihenfolge selbst
     # (0 abgewiesen, 1 Login, 2 Sperre, 3 Scanner, 4 Besucher). So verrät die Datei nichts über die eingesetzte Technik.
-    return {"v": 1, "generated": int(now), "window": int(now - since), "events": out[-MAX_EVENTS:]}
+    res = {"v": 1, "generated": int(now), "window": int(now - since), "events": out[-(max_events or MAX_EVENTS):]}
+    if alle:
+        res["alle"] = 1
+    return res
 
 
 def atomic_write_json(path, obj):

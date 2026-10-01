@@ -8,7 +8,7 @@ Self-hosted, reads your own server logs, geolocates locally. (German UI and docu
 TrafficGlobe zeigt in Echtzeit auf einem 3D-Globus, woher Verbindungen zu deinem Server kommen: abgewiesene Port-Scans, gescheiterte
 Login-Versuche, automatische IP-Sperren, Web-Scanner und normale Besucher. Jedes Ereignis wird eine Linie, die vom groben
 Ursprungsort zum Ziel geschossen wird und dann mit der Zeit verblasst. Weitere Anfragen aus derselben Region schicken ein
-kleines Paket über die bestehende Linie. Mit der Maus über einer Linie siehst du Art, Herkunftsland und Anzahl.
+kleines Paket über die bestehende Linie (oder, im Modus „jede Anfrage“, jede Anfrage einzeln). Mit der Maus über einer Linie siehst du Art, Herkunftsland und Anzahl.
 
 ```
  Logs (ufw, sshd, fail2ban, nginx) ──lesen──> collector (Docker, ohne Netz) ──> public/live-public.json

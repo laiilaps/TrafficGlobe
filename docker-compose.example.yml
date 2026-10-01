@@ -15,6 +15,7 @@ services:
       - .env
     environment:
       - TZ=Europe/Berlin         # Zeitzone der Logs (fail2ban schreibt Ortszeit ohne Zone)
+      - TG_MODUS=normal          # normal = gleiche Orte zusammengefasst, alle = jede Anfrage ein Ereignis (umschaltbar, siehe Betrieb)
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /var/log:/host-log:ro

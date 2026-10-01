@@ -263,5 +263,112 @@ class Daemon(unittest.TestCase):
             signal.signal(signal.SIGALRM, alt)
 
 
+class AlleAnfragen(unittest.TestCase):
+    """Modus "jede Anfrage" (alle) und "normal": per Datei umschaltbar, ohne Neustart, dauerhaft."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        for d in ("logs", "out", "nginx"):
+            os.mkdir(os.path.join(self.tmp, d))
+        self.cfg = {"LOG_DIR": f"{self.tmp}/logs", "NGINX_LOG": f"{self.tmp}/nginx/access.log", "OUT_DIR": f"{self.tmp}/out",
+                    "IGNORE_IPS": "7.7.7.7", "PUBLIC_DELAY": "0", "PUBLIC_K_MIN": "1"}
+        self.now = 1790764600.0
+        self.drei()
+
+    def drei(self):
+        with open(f"{self.tmp}/logs/ufw.log", "a") as f:
+            f.write((UFW + "\n") * 3)            # drei Anfragen derselben Gegend in derselben Sekunde
+
+    def modus(self, text):
+        with open(f"{self.tmp}/out/modus", "w") as f:
+            f.write(text)
+
+    def live(self):
+        with open(f"{self.tmp}/out/public/live-public.json") as f:
+            return json.load(f)
+
+    def collector(self, **extra):
+        return daemon.Collector(dict(self.cfg, **extra), FakeGeo(), now=lambda: self.now)
+
+    def test_default_is_normal_and_merges(self):
+        c = self.collector()
+        c.step()
+        self.assertEqual(len(self.live()["events"]), 1)
+        self.assertNotIn("alle", self.live())
+
+    def test_standard_alle_keeps_every_request(self):
+        c = self.collector(TG_MODUS="alle")
+        self.assertEqual(c.step(), 3)
+        live = self.live()
+        self.assertEqual(len(live["events"]), 3)                  # nichts zusammengefasst
+        self.assertEqual(live["alle"], 1)                         # Datei kennzeichnet den Modus
+        for e in live["events"]:
+            self.assertEqual(len(e), 4)                           # trotzdem nur Zahlen
+        self.assertEqual(json.load(open(f"{self.tmp}/out/status.json"))["modus"], "alle")
+
+    def test_file_beats_standard_in_both_directions(self):
+        self.modus("normal")
+        self.collector(TG_MODUS="alle").step()
+        self.assertEqual(len(self.live()["events"]), 1)           # Datei sagt normal
+        self.modus("alle")
+        os.remove(f"{self.tmp}/out/events.jsonl")
+        self.drei()
+        c = self.collector(TG_MODUS="normal"); c.state = None
+        self.assertTrue(c.alle)                                   # Datei sagt alle
+
+    def test_switch_without_restart(self):
+        c = self.collector(TG_MODUS="alle")
+        c.step()
+        self.assertEqual(len(c.events), 3)
+        self.modus("normal")
+        self.now += 5
+        c.step()
+        self.assertFalse(c.alle)
+        self.assertEqual(len(c.events), 1)                         # rückwirkend zusammengefasst
+        self.assertNotIn("alle", self.live())
+        self.modus("alle")
+        self.drei()
+        self.now += 5
+        c.step()
+        self.assertTrue(c.alle)
+        self.assertEqual(self.live()["alle"], 1)
+
+    def test_mode_survives_restart(self):
+        self.modus("normal")
+        self.assertFalse(self.collector(TG_MODUS="alle").alle)     # Datei bleibt maßgeblich nach einem Neustart
+        self.modus("alle")
+        self.assertTrue(self.collector(TG_MODUS="normal").alle)
+
+    def test_garbage_in_file_falls_back_to_standard(self):
+        self.modus("???")
+        self.assertTrue(self.collector(TG_MODUS="alle").alle)
+        self.assertFalse(self.collector(TG_MODUS="normal").alle)
+
+    def test_events_are_persisted_and_merge_again_after_normal_restart(self):
+        self.collector(TG_MODUS="alle").step()
+        lines = open(f"{self.tmp}/out/events.jsonl").read().strip().splitlines()
+        self.assertEqual(len(lines), 3)
+        self.modus("normal")
+        self.assertEqual(len(self.collector().events), 1)          # beim Laden im Normalmodus zusammengefasst
+
+    def test_file_size_is_capped(self):
+        alt = daemon.ALLE_MAX
+        daemon.ALLE_MAX = 2
+        try:
+            self.collector(TG_MODUS="alle").step()
+        finally:
+            daemon.ALLE_MAX = alt
+        self.assertEqual(len(self.live()["events"]), 2)
+
+    def test_names_and_command_line_flags(self):
+        self.assertEqual(daemon.modus_name("ALLE\n", "normal"), "alle")
+        self.assertEqual(daemon.modus_name(" normal ", "alle"), "normal")
+        self.assertEqual(daemon.modus_name("", "alle"), "alle")
+        import subprocess
+        h = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "..", "collector", "daemon.py"), "--help"],
+                           capture_output=True, text=True).stdout
+        self.assertIn("--all-logs", h)
+        self.assertIn("--normal", h)
+
 if __name__ == "__main__":
     unittest.main()

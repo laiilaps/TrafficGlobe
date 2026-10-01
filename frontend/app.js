@@ -133,7 +133,7 @@
                       text: 'Bots prüfen die Website auf bekannte Lücken, Anfrage mit HTTP-Fehler 4xx beantwortet' }, // gelb
         sperre:     { gruppe: 'abwehr', farbe: '#1e90ff', name: 'IP gebannt',
                       text: 'Reaktion des Servers: Absender nach wiederholten Fehlversuchen automatisch gebannt (ausgesperrt)' }, // blau
-        besucher:   { gruppe: 'gut',   farbe: '#2bff6a', name: 'Besucher',
+        besucher:   { gruppe: 'gut',   farbe: '#2bff6a', name: 'Legitimer Traffic',
                       text: 'Normaler Seitenaufruf, erfolgreich beantwortet (HTTP 2xx/3xx)' },                       // grün
     };
 
@@ -270,7 +270,9 @@
         bogen.geboren = Date.now();                                // wer oft anklopft, hält seine Linie hell
     }
 
+    const MAX_PAKETE = 150;                   // Obergrenze gleichzeitiger Pakete (der Rest wird nur gezählt), schützt schwache Geräte
     function paketStarten(bogen) {
+        if (pakete.length >= MAX_PAKETE) return;
         if (!linien.has(linienSchluessel({ la: bogen.startLat, lo: bogen.startLng, k: bogen.kat })) || verborgen.has(bogen.kat)) return;
         const f = pfadFinden(bogen);
         if (!f) return;
@@ -434,6 +436,7 @@
     const legendeEl = document.getElementById('legende');
     const zahlEls = {};
     const statEls = {};
+    const nameEls = {};
     const titelEl = document.createElement('h1');
     const pfeilEl = document.createElement('span');
     const laenderEl = document.createElement('div');
@@ -462,7 +465,7 @@
 
         const ueberblick = document.createElement('div');
         ueberblick.className = 'ueberblick';
-        for (const [id, text] of [['angriffe', 'Angriffe'], ['sperren', 'Gebannt'], ['besucher', 'Besucher']]) {
+        for (const [id, text] of [['angriffe', 'Angriffe'], ['sperren', 'Gebannt'], ['besucher', 'Legitim']]) {
             const box = document.createElement('div');
             box.className = 'stat ' + id;
             const wert = document.createElement('b');
@@ -498,6 +501,7 @@
             const name = document.createElement('span');
             name.className = 'name';
             name.textContent = art.name;
+            nameEls[kat] = name;
             const zahl = document.createElement('span');
             zahl.className = 'zahl';
             zahl.textContent = '0';
@@ -528,6 +532,9 @@
         const n = {};
         aktive.forEach(b => n[b.kat] = (n[b.kat] || 0) + b.zeiten.length);
         for (const kat in zahlEls) zahlEls[kat].textContent = n[kat] || 0;
+        // Eindeutige Orte statt Personen: Es gibt keine IPs, jede Linie steht für eine Rasterzelle (ca. 110 km)
+        const orte = aktive.filter(b => b.kat === 'besucher').length;
+        nameEls.besucher.textContent = `${ARTEN.besucher.name} (${orte} ${orte === 1 ? 'Ort' : 'Orte'})`;
         statEls.angriffe.textContent = (n.abgewiesen || 0) + (n.login || 0) + (n.scanner || 0);
         statEls.sperren.textContent = n.sperre || 0;
         statEls.besucher.textContent = n.besucher || 0;
@@ -737,7 +744,16 @@
     // ================= Live-Daten =================
     let gesehen = new Set();
     let erstesMal = true;
-    const schluessel = e => `${e.t}|${e.k}|${e.la}|${e.lo}`;
+    // Schlüssel je Ereignis. Identische Ereignisse in derselben Sekunde (Modus "jede Anfrage") bekommen eine Nummer dazu,
+    // damit keines verloren geht und keines doppelt abgespielt wird.
+    function schluesselListe(ereignisse) {
+        const zaehler = new Map();
+        return ereignisse.map(e => {
+            const k = `${e.t}|${e.k}|${e.la}|${e.lo}`, n = zaehler.get(k) || 0;
+            zaehler.set(k, n + 1);
+            return `${k}|${n}`;
+        });
+    }
 
     // Ereignisse gleichmäßig über das Abfrage-Intervall verteilen, damit nicht alle im selben Moment starten
     function abspielen(liste) {
@@ -758,14 +774,15 @@
             const serverJetzt = Date.parse(r.headers.get('date') || '') / 1000 || Date.now() / 1000;
             const alter = serverJetzt - d.generated;
             if (alter > 120) statusSetzen('alt', `Daten veraltet (${Math.round(alter / 60)} Min)`);
-            else statusSetzen('live', 'Live');
+            else statusSetzen('live', d.alle ? 'Live · jede Anfrage' : 'Live');
 
             // Format: events = [[Zeit, Art-Nummer, Breite, Länge], ...]
             const ereignisse = d.events
                 .map(([t, ki, la, lo]) => ({ t, k: ART_NACH_INDEX[ki], la, lo }))
                 .filter(e => ARTEN[e.k]);
-            const neu = ereignisse.filter(e => !gesehen.has(schluessel(e))).sort((a, b) => a.t - b.t);
-            gesehen = new Set(ereignisse.map(schluessel));
+            const keys = schluesselListe(ereignisse);
+            const neu = ereignisse.filter((e, i) => !gesehen.has(keys[i])).sort((a, b) => a.t - b.t);
+            gesehen = new Set(keys);
 
             if (erstesMal) {
                 erstesMal = false;

@@ -8,6 +8,7 @@ nur /out ist beschreibbar. Ausgaben:
   events.jsonl       IP-freie, schon vergröberte Ereignisse für Neustarts (intern)
   state.json / status.json   Leseposition (ohne IPs) / Zähler (intern)
 """
+import argparse
 import ipaddress
 import json
 import os
@@ -20,6 +21,17 @@ import globe_collector as gc
 LIVE_SECONDS = 600
 MAX_READ = 8 * 1024 * 1024
 MAX_LINES_PER_POLL = 200000
+ALLE_MAX = 3000          # Modus "jede Anfrage": so viele Ereignisse höchstens in der Live-Datei (hält sie unter ~75 KB)
+
+
+def modus_name(text, standard):
+    """Aus einem Text den Modus machen: "alle" (jede Anfrage) oder "normal" (zusammengefasst); sonst der Standard."""
+    t = str(text or "").strip().lower()
+    if t in ("alle", "all", "all-logs", "alles"):
+        return "alle"
+    if t in ("normal", "zusammengefasst"):
+        return "normal"
+    return standard
 
 
 def log(msg):
@@ -99,6 +111,10 @@ class Collector:
             Tailer("f2b", os.path.join(d, "fail2ban.log"), state),
             Tailer("nginx", cfg["NGINX_LOG"], state),
         ]
+        # Modus: Die Datei OUT_DIR/modus (von ./globe.sh geschrieben, bleibt auch nach Neustart) hat Vorrang vor dem Standard (TG_MODUS)
+        self.modus_standard = modus_name(cfg.get("TG_MODUS"), "normal")
+        self.modus_datei = os.path.join(self.out, "modus")
+        self.alle = self._lese_modus() == "alle"
         self.events = self._load_events()
         self.stats = {t.name: {"lines": 0, "events": 0} for t in self.tailers}
         self.no_geo = 0
@@ -111,6 +127,14 @@ class Collector:
                 return json.load(f)
         except (OSError, ValueError):
             return {}
+
+    def _lese_modus(self):
+        try:
+            with open(self.modus_datei) as f:
+                text = f.read(40)
+        except OSError:
+            text = ""
+        return modus_name(text, self.modus_standard)
 
     def _load_events(self):
         """Lädt alte Ereignisse und bereinigt sie: nur bekannte Arten, keine Eigen-Markierungen,
@@ -149,6 +173,13 @@ class Collector:
     def step(self):
         """Ein Durchlauf: neue Zeilen lesen -> Ereignisse -> Dateien schreiben."""
         now = self.now()
+        alle = self._lese_modus() == "alle"
+        if alle != self.alle:                                         # Modus wurde umgeschaltet (ohne Neustart)
+            self.alle = alle
+            if not alle:
+                self.events = gc.dedupe(self.events)                  # rückwirkend zusammenfassen
+            self.dirty = True
+            log("Modus: jede Anfrage" if alle else "Modus: normal (zusammengefasst)")
         new = []
         for t in self.tailers:
             parse = gc.PARSERS[t.name]
@@ -171,9 +202,13 @@ class Collector:
                 new.append(gc.make_event(ts, kind, g, port))
                 self.stats[t.name]["lines"] += 1
         if new:
-            merged = gc.dedupe(self.events + new)
-            fresh = {id(e) for e in new}
-            kept = [e for e in merged if id(e) in fresh]
+            if alle:        # jede Anfrage bleibt ein Ereignis, nichts wird zusammengefasst und nichts dauerhaft gespeichert
+                merged = sorted(self.events + new, key=lambda e: e["t"])
+                kept = new
+            else:
+                merged = gc.dedupe(self.events + new)
+                fresh = {id(e) for e in new}
+                kept = [e for e in merged if id(e) in fresh]
             for e in kept:
                 self.stats_for(e)
             self.events = merged[-gc.MAX_EVENTS:]
@@ -194,8 +229,9 @@ class Collector:
     def _write(self, now):
         w = lambda name, obj: gc.atomic_write_json(os.path.join(self.out, name), obj)
         if (self.dirty and now - self.last["live"] >= 2) or now - self.last["live"] >= 30:
-            w("public/live-public.json", gc.build_live(self.events, now, now - LIVE_SECONDS,
-                                                self.pub_delay, self.pub_kmin))
+            alle = self.alle
+            w("public/live-public.json", gc.build_live(self.events, now, now - LIVE_SECONDS, self.pub_delay, self.pub_kmin,
+                                                max_events=ALLE_MAX if alle else None, alle=alle))
             self.last["live"] = now
         if (self.dirty and now - self.last["public"] >= 60) or now - self.last["public"] >= 300:
             w("stats-24h.json", gc.build_public(self.events, now, self.pub_delay, self.pub_kmin))
@@ -210,6 +246,7 @@ class Collector:
                                        for t in self.tailers if t.inode is not None}})
             w("status.json", {"generated": int(now), "events": len(self.events),
                               "no_geo": self.no_geo, "geo_reloads": getattr(self.geo, "reloads", 0),
+                              "modus": "alle" if self.alle else "normal",
                               "sources": {t.name: {"error": t.error, **self.stats[t.name]}
                                           for t in self.tailers}})
             self.last["state"] = now
@@ -219,12 +256,24 @@ def main():
     cfg = {k: os.environ.get(k, d) for k, d in {
         "LOG_DIR": "/host-log", "NGINX_LOG": "/nginx-log/access.log", "OUT_DIR": "/out",
         "MMDB": "/geo/dbip-city-lite.mmdb", "IGNORE_IPS": "",
-        "POLL_SECONDS": "2", "PUBLIC_DELAY": "", "PUBLIC_K_MIN": ""}.items()}
+        "POLL_SECONDS": "2", "PUBLIC_DELAY": "", "PUBLIC_K_MIN": "", "TG_MODUS": ""}.items()}
+    ap = argparse.ArgumentParser(description="TrafficGlobe-Collector")
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("--all-logs", action="store_true",
+                   help="Standardmodus: jede Anfrage wird ein Ereignis. Die Datei OUT_DIR/modus hat Vorrang.")
+    g.add_argument("--normal", action="store_true",
+                   help="Standardmodus: gleiche Anfragen aus derselben Gegend werden 30 s lang zusammengefasst (Voreinstellung).")
+    args = ap.parse_args()
+    if args.all_logs:
+        cfg["TG_MODUS"] = "alle"
+    elif args.normal:
+        cfg["TG_MODUS"] = "normal"
     geo = gc.Geo(cfg["MMDB"])
     if not geo.reader:
         log("WARNUNG: keine Geo-Datenbank gefunden, es entstehen keine Ereignisse")
     c = Collector(cfg, geo)
     log(f"gestartet: {len(c.events)} Ereignisse geladen, {len(c.ignore)} ignorierte IPs")
+    log("Modus: " + ("jede Anfrage" if c.alle else "normal (zusammengefasst)"))
     running = [True]
     signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))
     signal.signal(signal.SIGINT, lambda *_: running.__setitem__(0, False))

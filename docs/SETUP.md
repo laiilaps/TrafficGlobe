@@ -93,6 +93,9 @@ Im Browser: Netzwerk-Tab (nur eigene Domain), Konsole ohne CSP-Fehler, keine Coo
 
 ## Betrieb
 
+- **Modus:** Standard ist `normal` (gleiche Orte innerhalb von 30 s werden zusammengefasst). Im Modus `alle` ist jede Anfrage ein
+  eigenes Ereignis, die Live-Datei ist dann auf 3000 Einträge begrenzt. Umschalten ohne Neustart: `echo alle > out/modus` bzw.
+  `echo normal > out/modus`. Die Datei hat Vorrang vor `TG_MODUS` und bleibt nach einem Neustart erhalten.
 - **Notaus:** `docker compose -f docker-compose.example.yml stop` und `rm out/public/live-public.json`.
 - **systemd-Journal** enthält SSH- und Firewall-Meldungen mit IPs und hat standardmäßig keine Zeitgrenze. Wenn du versprichst,
   Logs würden regelmäßig gelöscht, setze `MaxRetentionSec=1month` in `/etc/systemd/journald.conf.d/`.
